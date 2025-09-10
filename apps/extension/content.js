@@ -359,10 +359,47 @@
     if (panel) {
       const textSpan = panel.querySelector('span');
       if (textSpan) {
-        const priceText = priceElement ? priceElement.innerText.trim() : '(No price)';
-        const allTitles = scoredTitles.map(t => `${t.text} [${t.score}]`).join(' | ');
-        textSpan.textContent = `${allTitles} — ${priceText}`;
+        // Clean and filter price
+        function cleanPriceText(raw) {
+          if (!raw) return raw;
+          let txt = raw.replace(/\s+/g, ' ').trim();
+          // Exclude 'List:' prices
+          if (/List:/i.test(txt)) return '';
+          const tokens = Array.from(txt.matchAll(/\d[\d\s.,]*\d/g)).map(m => m[0].replace(/\s+/g, ''));
+          if (tokens.length === 0) return txt; // fallback
+          function normalize(num) {
+            let n = num.replace(/\s+/g, '');
+            if (/[.,]/.test(n)) {
+              const lastSep = Math.max(n.lastIndexOf('.'), n.lastIndexOf(','));
+              const intPart = n.slice(0, lastSep).replace(/[.,]/g, '');
+              const decPart = n.slice(lastSep + 1);
+              n = intPart + '.' + decPart;
+            }
+            return n;
+          }
+          const normalized = tokens.map(normalize);
+          const primaryValue = normalized[0];
+          let symbol = '';
+          const symbolMatch = txt.match(/([\$€£¥₹₽₩₺])/);
+          if (symbolMatch) symbol = symbolMatch[1];
+          else {
+            const codeMatch = txt.match(/\b(USD|EUR|GBP|JPY|AUD|CAD|CHF|CNY|SEK|NZD|KRW|INR|RUB|ZAR|SGD|TRY|TL|BRL|MXN|IDR|DKK|PLN|THB|HUF|CZK|ILS|MYR|PHP|RON|ARS|CLP|COP|EGP|HKD|JOD|KWD|LBP|MAD|NGN|NOK|OMR|QAR|SAR|VND)\b/i);
+            if (codeMatch) symbol = codeMatch[1].toUpperCase();
+          }
+          if (!symbol && /\bTL\b/i.test(txt)) symbol = 'TL';
+          return symbol ? `${symbol} ${primaryValue}` : primaryValue;
+        }
 
+        // Find and clean best price
+        let bestPrice = '(No price)';
+        if (priceElement) {
+          const rawPrice = priceElement.innerText.trim();
+          bestPrice = cleanPriceText(rawPrice) || '(No price)';
+        }
+
+        // Only show best title
+        const bestTitle = scoredTitles.length > 0 ? scoredTitles[0].text : '(No title)';
+        textSpan.textContent = `${bestTitle} — ${bestPrice}`;
       }
     }
   }
@@ -543,44 +580,56 @@
 
   // ====== Scrape only inside the hovered card ======
   function scrapeSingleProduct(card) {
-    // 1) Candidate price elements within card
-    const potentialPriceElements = Array.from(card.querySelectorAll(PRICE_QS))
-      .filter(el => {
-        if (!(el instanceof Element)) return false;
-        if (el.closest(reviewContainerSelectors)) return false; // skip review blocks
-        if (el.offsetParent === null || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
+    // 1) Candidate price elements within card: any element with priceRegex match and currency
+    const allPriceElements = Array.from(card.querySelectorAll(PRICE_QS)).filter(el => {
+      if (!(el instanceof Element)) return false;
+      if (el.closest(reviewContainerSelectors)) return false;
+      if (el.offsetParent === null || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
+      let text = (el.innerText || "").replace(/\s+/g, ' ').trim();
+      if (text.length === 0 || text.length > MAX_TEXT_ELEMENT_LENGTH) return false;
+      if (reviewPattern.test(text)) return false;
+      return priceRegex.test(text);
+    });
 
-        const text = (el.innerText || "").trim();
-        if (text.length === 0 || text.length > MAX_TEXT_ELEMENT_LENGTH) return false;
-
-        // Semantic review-ish attributes
-        if ((el.hasAttribute('itemprop') && /(reviewrating|ratingvalue)/i.test(el.getAttribute('itemprop') || "")) ||
-            el.hasAttribute('data-rating')) {
-          return false;
-        }
-
-        if (reviewPattern.test(text)) return false;
-        if (priceRegex.test(text)) return true;
-
-        const hasSemanticPriceAttr = el.hasAttribute('data-price') ||
-                                     el.hasAttribute('data-saleprice') ||
-                                     (el.hasAttribute('itemprop') && /price/i.test(el.getAttribute('itemprop') || ""));
-        return hasSemanticPriceAttr;
-      });
-
-    // Pick the first decent price, but prefer one closest to card center
+    // Score each candidate and pick the best
+    let bestScore = -Infinity;
     let priceEl = null;
-    if (potentialPriceElements.length) {
-      const cx = card.getBoundingClientRect();
-      const center = { x: cx.left + cx.width / 2, y: cx.top + cx.height / 2 };
-      priceEl = potentialPriceElements
-        .map(el => ({ el, r: el.getBoundingClientRect() }))
-        .sort((a, b) => {
-          const da = (a.r.left + a.r.width / 2 - center.x) ** 2 + (a.r.top + a.r.height / 2 - center.y) ** 2;
-          const db = (b.r.left + b.r.width / 2 - center.x) ** 2 + (b.r.top + b.r.height / 2 - center.y) ** 2;
-          return da - db;
-        })[0].el;
-    }
+    allPriceElements.forEach(el => {
+      let score = 0;
+      const style = window.getComputedStyle(el);
+      const fontSize = parseFloat(style.fontSize);
+      if (fontSize >= 18) score += 3;
+      else if (fontSize >= 15) score += 2;
+      else if (fontSize >= 13) score += 1;
+      // Height
+      if (el.offsetHeight >= 30) score += 2;
+      else if (el.offsetHeight >= 20) score += 1;
+      // Bold
+      const fontWeight = style.fontWeight;
+      if (fontWeight === 'bold' || parseInt(fontWeight) >= 600) score += 2;
+      // Strikethrough
+      const tag = el.tagName;
+      if (tag === 'S' || tag === 'DEL') score -= 9;
+      if ((style.textDecorationLine && style.textDecorationLine.includes('line-through')) ||
+          (style.textDecoration && style.textDecoration.includes('line-through'))) {
+        score -= 9;
+      }
+      // Extra words penalty
+      let text = (el.innerText || "").replace(/\s+/g, ' ').trim();
+      const priceMatch = text.match(priceRegex);
+      if (priceMatch) {
+        // Remove price from text
+        const extra = text.replace(priceMatch[0], '').replace(/[^\w]+/g, ' ').trim();
+        if (extra.length > 0) score -= 2;
+      }
+      // Prefer elements with only price
+      if (text.length === (priceMatch ? priceMatch[0].length : 0)) score += 1;
+      // Pick highest scoring
+      if (score > bestScore) {
+        bestScore = score;
+        priceEl = el;
+      }
+    });
 
     // 2) Image in card
     let image = Array.from(card.querySelectorAll(IMAGE_QS)).find(img =>
@@ -632,9 +681,47 @@
     if (titleEl) titleEl.classList.add('product-detector-highlight-title');
     if (priceEl) priceEl.classList.add('product-detector-highlight-price');
 
+    // Price cleanup: remove repeated duplicates & extraneous text, keep first occurrence
+    function cleanPriceText(raw) {
+      if (!raw) return raw;
+      let txt = raw.replace(/\s+/g, ' ').trim();
+      // Gather numeric tokens
+      const tokens = Array.from(txt.matchAll(/\d[\d\s.,]*\d/g)).map(m => m[0].replace(/\s+/g, ''));
+      if (tokens.length === 0) return txt; // fallback
+      // Normalize by removing thousand separators heuristic
+      function normalize(num) {
+        // remove spaces
+        let n = num.replace(/\s+/g, '');
+        // If both comma and dot exist, assume last separator is decimal
+        if (/[.,]/.test(n)) {
+          const lastSep = Math.max(n.lastIndexOf('.'), n.lastIndexOf(','));
+          const intPart = n.slice(0, lastSep).replace(/[.,]/g, '');
+            const decPart = n.slice(lastSep + 1);
+            n = intPart + '.' + decPart;
+        }
+        return n;
+      }
+      const normalized = tokens.map(normalize);
+      // If duplicates of same normalized value appear, keep first only
+      const primaryValue = normalized[0];
+      // Detect currency symbol or code near first occurrence
+      let symbol = '';
+      const symbolMatch = txt.match(/([\$€£¥₹₽₩₺])/);
+      if (symbolMatch) symbol = symbolMatch[1];
+      else {
+        const codeMatch = txt.match(/\b(USD|EUR|GBP|JPY|AUD|CAD|CHF|CNY|SEK|NZD|KRW|INR|RUB|ZAR|SGD|TRY|TL|BRL|MXN|IDR|DKK|PLN|THB|HUF|CZK|ILS|MYR|PHP|RON|ARS|CLP|COP|EGP|HKD|JOD|KWD|LBP|MAD|NGN|NOK|OMR|QAR|SAR|VND)\b/i);
+        if (codeMatch) symbol = codeMatch[1].toUpperCase();
+      }
+      // If TL appears after number
+      if (!symbol && /\bTL\b/i.test(txt)) symbol = 'TL';
+      // Reconstruct
+      return symbol ? `${symbol} ${primaryValue}` : primaryValue;
+    }
+
+    const cleanedPrice = priceEl ? cleanPriceText(priceEl.innerText) : 'N/A';
     const result = {
       title: titleEl ? titleEl.innerText.trim() : 'N/A',
-      price: priceEl ? priceEl.innerText.trim() : 'N/A',
+      price: cleanedPrice,
       imageUrl
     };
 
