@@ -229,6 +229,21 @@
       });
     });
 
+    // Identify primary image for below-image heuristic
+    function isVisible(el) {
+      return el && el.offsetParent !== null && el.offsetWidth > 0 && el.offsetHeight > 0;
+    }
+    let mainImage = null;
+    let mainImageRect = null;
+    const candidateImages = Array.from(card.querySelectorAll('img'))
+      .filter(img => isVisible(img) && (img.naturalWidth || img.width) >= 60 && (img.naturalHeight || img.height) >= 60);
+    if (candidateImages.length) {
+      // choose largest area image
+      candidateImages.sort((a,b) => ( (a.naturalWidth||a.width)*(a.naturalHeight||a.height) ) - ( (b.naturalWidth||b.width)*(b.naturalHeight||b.height) ));
+      mainImage = candidateImages[candidateImages.length - 1];
+      try { mainImageRect = mainImage.getBoundingClientRect(); } catch(e) { mainImageRect = null; }
+    }
+
     // Score all candidate titles
     const scoredTitles = [];
     const potentialTitles = Array.from(card.querySelectorAll(TITLE_QS));
@@ -290,6 +305,21 @@
       const rect = el.getBoundingClientRect();
       const cardRect = card.getBoundingClientRect();
       if (rect.top - cardRect.top < cardRect.height / 3) score += 1;
+      // Below-image / above-image heuristic
+      if (mainImageRect) {
+        const horizontallyAdjacent = !(rect.right < mainImageRect.left || rect.left > mainImageRect.right);
+        const belowGap = rect.top - mainImageRect.bottom;
+        const sideBySide = rect.left >= mainImageRect.right + 10 || mainImageRect.left >= rect.right + 10; // non-overlapping horizontally implies side layout
+        if (horizontallyAdjacent && belowGap >= 0 && belowGap < 150) {
+          // title just under the image
+          score += 3;
+        } else if (!sideBySide && horizontallyAdjacent && rect.top < mainImageRect.top - 10) {
+          // appears significantly above image and not in a side-by-side layout; penalize unless strong semantic hints
+          if (!/^h[1-6]$/i.test(el.tagName) && !el.classList.contains('product-title') && !(el.hasAttribute('itemprop') && el.getAttribute('itemprop').toLowerCase().includes('name'))) {
+            score -= 2;
+          }
+        }
+      }
       // Keyword penalty
       const lowerText = titleText.toLowerCase();
       for (const kw of TITLE_EXCLUDE_KEYWORDS) {
