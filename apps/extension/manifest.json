@@ -3,7 +3,7 @@
   "name": "PriceCompare — Dev Hover Highlight",
   "version": "0.1.0",
   "description": "Highlights product cards on hover for development.",
-  "permissions": ["activeTab", "scripting", "tabs"],
+  "permissions": ["activeTab", "scripting", "tabs", "downloads"],
   "background": {
     "service_worker": "background.js"
   },

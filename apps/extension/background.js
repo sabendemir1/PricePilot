@@ -10,29 +10,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 		});
 		return true;
 	}
-	// Fetch HTML for a given URL
 	if (msg && msg.type === 'PP_FETCH_HTML' && msg.url) {
-		fetch(msg.url)
-			.then(response => response.text())
-			.then(html => {
-				// Send to the tab that requested the fetch
-				const tabId = sender.tab && sender.tab.id ? sender.tab.id : null;
-				if (tabId) {
-					chrome.tabs.sendMessage(tabId, { type: 'PP_SAVE_HTML', html, idx: msg.idx });
-				} else {
-					// fallback: send to active tab
-					chrome.tabs.query({active: true, currentWindow: true}, tabs => {
-						if (tabs[0]) {
-							chrome.tabs.sendMessage(tabs[0].id, { type: 'PP_SAVE_HTML', html, idx: msg.idx });
-						}
-					});
+		(async () => {
+			try {
+			const res = await fetch(msg.url, { redirect: 'follow', credentials: 'omit' });
+			if (!res.ok) throw new Error(`HTTP ${res.status} at ${msg.url}`);
+			const html = await res.text();
+
+			// --- robust UTF-8 → base64 (works in MV3 SW)
+			const utf8 = new TextEncoder().encode(html);
+			let bin = '';
+			for (let i = 0; i < utf8.length; i++) bin += String.fromCharCode(utf8[i]);
+			const base64 = btoa(bin);
+
+			const filename = `html_${(msg.idx ?? 0) + 1}.txt`;
+			chrome.downloads.download(
+				{
+				url: `data:text/plain;charset=utf-8;base64,${base64}`,
+				filename,
+				saveAs: false,
+				conflictAction: 'overwrite'
+				},
+				(downloadId) => {
+				if (chrome.runtime.lastError) {
+					console.error('downloads.download error:', chrome.runtime.lastError.message);
+					sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+					return;
 				}
-				sendResponse({ ok: true, html });
-			})
-			.catch(err => {
-				sendResponse({ ok: false, error: String(err) });
-			});
-		return true;
+				// optional feedback to the tab
+				const tabId = sender?.tab?.id;
+				if (tabId) chrome.tabs.sendMessage(tabId, { type: 'PP_HTML_SAVED', idx: msg.idx, downloadId });
+				sendResponse({ ok: true, idx: msg.idx, downloadId });
+				}
+			);
+			} catch (err) {
+			console.error('PP_FETCH_HTML fetch error:', err);
+			sendResponse({ ok: false, error: String(err) });
+			}
+		})();
+  	return true; // keep channel open
 	}
 });
 // Background service worker
@@ -57,7 +73,7 @@ async function webSearch(query, limit = 10) {
 								return links.map(a => ({ title: a.textContent.trim(), url: a.href }));
 							}
 						}, (results) => {
-							//chrome.tabs.remove(tabId);
+							chrome.tabs.remove(tabId);
 							if (chrome.runtime.lastError || !results || !results[0]) {
 								resolve([]);
 							} else {

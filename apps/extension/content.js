@@ -193,21 +193,6 @@
   'indirim', 'ekle', 'fırsat','sepet','kupon','alışveriş','ürün','yeni','renk','beden','kargo','teslimat','stok','satıcı','puan','değerlendirme','yorum','kampanya','ödül','ödeme','ödüllü','ödüller','ödüllendirme','ödüllendir','ödeme','ödendi','ödüyor','ödüyorlar','ödüyorsunuz','ödüyordum','ödüyordu','ödüyorduk','ödüyordunuz','ödüyordular','ödüyorsa','ödüyorsak','ödüyorsanız','ödüyorsalar','ödüyormuş','ödüyormuşum','ödüyormuşsun','ödüyormuşuz','ödüyormuşsunuz','ödüyormuşlar','ödüyorsa','ödüyorsak','ödüyorsanız','ödüyorsalar','ödüyormuş','ödüyormuşum','ödüyormuşsun','ödüyormuşuz','ödüyormuşsunuz','ödüyormuşlar','ödeme','ödemez','ödemezsin','ödemez','ödemezsiniz','ödemezler','ödemezsek','ödemezseniz','ödemezlerse','ödemezmiş','ödemezmişim','ödemezmişsin','ödemezmişiz','ödemezmişsiniz','ödemezmişler','ödemezse','ödemezsek','ödemezseniz','ödemezlerse','ödemezmiş','ödemezmişim','ödemezmişsin','ödemezmişiz','ödemezmişsiniz','ödemezmişler','ödemez','ödemezsin','ödemez','ödemezsiniz','ödemezler','ödemezsek','ödemezseniz','ödemezlerse','ödemezmiş','ödemezmişim','ödemezmişsin','ödemezmişiz','ödemezmişsiniz','ödemezmişler','ödemezse','ödemezsek','ödemezseniz','ödemezlerse','ödemezmiş','ödemezmişim','ödemezmişsin','ödemezmişiz','ödemezmişsiniz','ödemezmişler'
   ];
 
-  // Save HTML as html_N.txt when received from background (register once)
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === 'PP_SAVE_HTML' && msg.html && typeof msg.idx === 'number') {
-      const blob = new Blob([msg.html], { type: "text/plain" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `html_${msg.idx + 1}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
-  });
-
   function showCardText(card) {
 
     if (!card) return;
