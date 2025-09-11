@@ -109,13 +109,16 @@
         panel.style.borderRadius = '10px';
         panel.style.padding = '16px 24px 16px 16px';
         panel.style.display = 'flex';
-        panel.style.alignItems = 'center';
+        panel.style.flexDirection = 'column';
+        panel.style.alignItems = 'stretch';
         panel.style.gap = '12px';
+        panel.style.overflowY = 'auto';
+        panel.style.maxHeight = '60vh';
         panel.style.fontFamily = 'system-ui,sans-serif';
         panel.style.fontSize = '15px';
         panel.style.color = '#222';
-        panel.style.minWidth = '180px';
-        panel.style.maxWidth = '320px';
+  panel.style.minWidth = '340px';
+  panel.style.maxWidth = '480px';
         panel.style.transition = 'opacity 0.2s';
 
         const text = document.createElement('span');
@@ -190,7 +193,23 @@
   'indirim', 'ekle', 'fırsat','sepet','kupon','alışveriş','ürün','yeni','renk','beden','kargo','teslimat','stok','satıcı','puan','değerlendirme','yorum','kampanya','ödül','ödeme','ödüllü','ödüller','ödüllendirme','ödüllendir','ödeme','ödendi','ödüyor','ödüyorlar','ödüyorsunuz','ödüyordum','ödüyordu','ödüyorduk','ödüyordunuz','ödüyordular','ödüyorsa','ödüyorsak','ödüyorsanız','ödüyorsalar','ödüyormuş','ödüyormuşum','ödüyormuşsun','ödüyormuşuz','ödüyormuşsunuz','ödüyormuşlar','ödüyorsa','ödüyorsak','ödüyorsanız','ödüyorsalar','ödüyormuş','ödüyormuşum','ödüyormuşsun','ödüyormuşuz','ödüyormuşsunuz','ödüyormuşlar','ödeme','ödemez','ödemezsin','ödemez','ödemezsiniz','ödemezler','ödemezsek','ödemezseniz','ödemezlerse','ödemezmiş','ödemezmişim','ödemezmişsin','ödemezmişiz','ödemezmişsiniz','ödemezmişler','ödemezse','ödemezsek','ödemezseniz','ödemezlerse','ödemezmiş','ödemezmişim','ödemezmişsin','ödemezmişiz','ödemezmişsiniz','ödemezmişler','ödemez','ödemezsin','ödemez','ödemezsiniz','ödemezler','ödemezsek','ödemezseniz','ödemezlerse','ödemezmiş','ödemezmişim','ödemezmişsin','ödemezmişiz','ödemezmişsiniz','ödemezmişler','ödemezse','ödemezsek','ödemezseniz','ödemezlerse','ödemezmiş','ödemezmişim','ödemezmişsin','ödemezmişiz','ödemezmişsiniz','ödemezmişler'
   ];
 
+  // Save HTML as html_N.txt when received from background (register once)
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'PP_SAVE_HTML' && msg.html && typeof msg.idx === 'number') {
+      const blob = new Blob([msg.html], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `html_${msg.idx + 1}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  });
+
   function showCardText(card) {
+
     if (!card) return;
     card.classList.remove(HIGHLIGHT_CLASS);
     card.classList.add(HIGHLIGHT_BLUE_CLASS);
@@ -358,7 +377,19 @@
     const panel = document.getElementById('pc-bottomright-panel');
     if (panel) {
       const textSpan = panel.querySelector('span');
-      if (textSpan) {
+        let linksContainer = panel.querySelector('.pp-links');
+        if (!linksContainer) {
+          linksContainer = document.createElement('div');
+          linksContainer.className = 'pp-links';
+          linksContainer.style.marginTop = '14px';
+          linksContainer.style.display = 'flex';
+          linksContainer.style.flexDirection = 'column';
+          linksContainer.style.gap = '12px';
+          linksContainer.style.maxHeight = '48vh';
+          linksContainer.style.overflowY = 'auto';
+          panel.appendChild(linksContainer);
+        }
+        linksContainer.innerHTML = '';
         // Clean and filter price
         function cleanPriceText(raw) {
           if (!raw) return raw;
@@ -400,7 +431,95 @@
         // Only show best title
         const bestTitle = scoredTitles.length > 0 ? scoredTitles[0].text : '(No title)';
         textSpan.textContent = `${bestTitle} — ${bestPrice}`;
-      }
+
+        // Launch background web search with title + price if available
+        if (bestTitle && bestPrice) {
+          if (window.__pp_search_in_progress) return;
+          window.__pp_search_in_progress = true;
+          const query = `${bestTitle}`;
+          try {
+            chrome.runtime.sendMessage({ type: 'PP_WEB_SEARCH', query, limit: 10 }, resp => {
+              window.__pp_search_in_progress = false;
+              if (chrome.runtime.lastError) {
+                console.warn('Search message error', chrome.runtime.lastError.message);
+                return;
+              }
+              if (!resp || !resp.ok) {
+                console.warn('Search failed', resp && resp.error);
+                return;
+              }
+              // Print links in panel
+              linksContainer.innerHTML = '';
+              if (resp.results && resp.results.length) {
+                resp.results.forEach((link, idx) => {
+                  // Card container
+                  const cardDiv = document.createElement('div');
+                  cardDiv.style.display = 'flex';
+                  cardDiv.style.alignItems = 'center';
+                  cardDiv.style.background = '#f8f9fa';
+                  cardDiv.style.borderRadius = '8px';
+                  cardDiv.style.boxShadow = '0 1px 4px rgba(0,0,0,0.07)';
+                  cardDiv.style.padding = '10px 16px';
+                  cardDiv.style.gap = '16px';
+                  cardDiv.style.cursor = 'pointer';
+                  cardDiv.style.transition = 'box-shadow 0.2s, background 0.2s';
+                  cardDiv.onmouseover = () => { cardDiv.style.boxShadow = '0 2px 8px rgba(33,150,243,0.10)'; cardDiv.style.background = '#eef6fc'; };
+                  cardDiv.onmouseout = () => { cardDiv.style.boxShadow = '0 1px 4px rgba(0,0,0,0.07)'; cardDiv.style.background = '#f8f9fa'; };
+                  cardDiv.onclick = () => { window.open(link.url, '_blank'); };
+
+                  // Image placeholder
+                  const imgDiv = document.createElement('div');
+                  imgDiv.style.width = '48px';
+                  imgDiv.style.height = '48px';
+                  imgDiv.style.background = '#e0e0e0';
+                  imgDiv.style.borderRadius = '6px';
+                  imgDiv.style.display = 'flex';
+                  imgDiv.style.alignItems = 'center';
+                  imgDiv.style.justifyContent = 'center';
+                  imgDiv.style.flexShrink = '0';
+                  // Optionally add an icon or leave empty
+                  cardDiv.appendChild(imgDiv);
+
+                  // Texts
+                  const textDiv = document.createElement('div');
+                  textDiv.style.display = 'flex';
+                  textDiv.style.flexDirection = 'column';
+                  textDiv.style.justifyContent = 'center';
+                  textDiv.style.flex = '1';
+
+                  // Title (bold, black)
+                  const titleEl = document.createElement('div');
+                  titleEl.textContent = query; // For now, use the search query as title
+                  titleEl.style.fontWeight = 'bold';
+                  titleEl.style.fontSize = '16px';
+                  titleEl.style.color = '#222';
+                  titleEl.style.marginBottom = '2px';
+                  textDiv.appendChild(titleEl);
+
+                  // Link (small, grey)
+                  const urlEl = document.createElement('div');
+                  urlEl.textContent = link.url;
+                  urlEl.style.fontSize = '12px';
+                  urlEl.style.color = '#888';
+                  urlEl.style.wordBreak = 'break-all';
+                  textDiv.appendChild(urlEl);
+
+                  cardDiv.appendChild(textDiv);
+                  linksContainer.appendChild(cardDiv);
+                });
+                // Parallel fetch HTML for all links
+                resp.results.forEach((link, idx) => {
+                  chrome.runtime.sendMessage({ type: 'PP_FETCH_HTML', url: link.url, idx });
+                });
+              } else {
+                linksContainer.textContent = 'No results found.';
+              }
+            });
+          } catch (e) {
+            window.__pp_search_in_progress = false;
+            console.warn('Unable to send search message', e);
+          }
+        }
     }
   }
 
