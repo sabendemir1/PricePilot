@@ -251,6 +251,20 @@
     // Score all candidate titles
     const scoredTitles = [];
     const potentialTitles = Array.from(card.querySelectorAll(TITLE_QS));
+    // Filter out elements whose text matches price or review regex when determining max font size
+    const fontSizePool = potentialTitles.filter(el => {
+      const txt = (el.innerText || '').trim();
+      if (!txt) return false;
+      if (priceRegex.test(txt)) return false; // exclude price-like strings
+      if (reviewPattern.test(txt)) return false; // exclude review/rating strings
+      return true;
+    });
+    let maxFontSize = 0;
+    const pool = fontSizePool.length ? fontSizePool : potentialTitles; // fallback if all filtered out
+    for (const el of pool) {
+      const fs = parseFloat(getComputedStyle(el).fontSize) || 0;
+      if (fs > maxFontSize) maxFontSize = fs;
+    }
     for (const el of potentialTitles) {
       const titleText = (el.innerText || '').trim();
       if (!titleText) continue;
@@ -297,11 +311,14 @@
       if (/^h[1-6]$/i.test(el.tagName)) score += 2;
       if (el.hasAttribute('itemprop') && el.getAttribute('itemprop').toLowerCase().includes('name')) score += 2;
       if (el.classList.contains('product-title') || el.classList.contains('item-name')) score += 2;
-      // Font size
+      // Font size (new rule: only the maximum sized element gets a big boost, others penalized)
       const style = window.getComputedStyle(el);
-      const fontSize = parseFloat(style.fontSize);
-      if (fontSize >= 18) score += 2;
-      else if (fontSize >= 15) score += 1;
+      const fontSize = parseFloat(style.fontSize) || 0;
+      if (fontSize === maxFontSize && maxFontSize > 0) {
+        score += 10;
+      } else {
+        score -= 3;
+      }
       // Font weight
       const fontWeight = style.fontWeight;
       if (fontWeight === 'bold' || parseInt(fontWeight) >= 600) score += 1;
@@ -682,6 +699,7 @@
     }
   }
 
+  /** 
   // ====== Scrape only inside the hovered card ======
   function scrapeSingleProduct(card) {
     // 1) Candidate price elements within card: any element with priceRegex match and currency
@@ -833,6 +851,8 @@
     console.log("Hovered product scraped:", result);
     return result;
   }
+  */
+
   // Inject highlight styles
   const style = document.createElement('style');
   style.textContent = `
